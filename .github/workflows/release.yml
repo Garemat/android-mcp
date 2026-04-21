@@ -24,12 +24,44 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Read version from pyproject.toml
+      - name: Compute next version
         id: version
         run: |
-          VERSION=$(grep '^version' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]' | head -1)
+          if [[ -z "$LATEST_TAG" ]]; then
+            CURRENT="0.0.0"
+          else
+            CURRENT="${LATEST_TAG#v}"
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          if [[ -n "$LATEST_TAG" ]]; then
+            COMMITS=$(git log "${LATEST_TAG}..HEAD" --format='%s')
+          else
+            COMMITS=$(git log --format='%s')
+          fi
+
+          BUMP="patch"
+          while IFS= read -r msg; do
+            if echo "$msg" | grep -qE '^feat(\(.+\))?!:|BREAKING CHANGE'; then
+              BUMP="major"; break
+            elif echo "$msg" | grep -qE '^feat(\(.+\))?:'; then
+              BUMP="minor"
+            fi
+          done <<< "$COMMITS"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          NEW_TAG="v${NEW_VERSION}"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "Computed $CURRENT → $NEW_VERSION ($BUMP)"
 
       - name: Skip if tag already exists
         id: check_tag
@@ -41,11 +73,16 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create tag
+      - name: Update pyproject.toml and tag
         if: steps.check_tag.outputs.exists == 'false'
         run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          sed -i "s/^version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git diff --cached --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
+          git push origin main
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
