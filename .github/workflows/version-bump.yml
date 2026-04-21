@@ -1,0 +1,86 @@
+name: Version Bump
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip if last commit is from bot
+        id: check
+        run: |
+          LAST_AUTHOR=$(git log -1 --format='%ae')
+          if [[ "$LAST_AUTHOR" == *"github-actions"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compute next version
+        if: steps.check.outputs.skip == 'false'
+        id: version
+        run: |
+          LATEST_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]' | head -1)
+          if [[ -z "$LATEST_TAG" ]]; then
+            CURRENT="0.1.0"
+          else
+            CURRENT="${LATEST_TAG#v}"
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          # Inspect commits on this PR branch since the last tag
+          if [[ -n "$LATEST_TAG" ]]; then
+            COMMITS=$(git log "${LATEST_TAG}..HEAD" --format='%s')
+          else
+            COMMITS=$(git log --format='%s')
+          fi
+
+          BUMP="patch"
+          while IFS= read -r msg; do
+            if echo "$msg" | grep -qE '^feat(\(.+\))?!:|BREAKING CHANGE'; then
+              BUMP="major"; break
+            elif echo "$msg" | grep -qE '^feat(\(.+\))?:'; then
+              BUMP="minor"
+            fi
+          done <<< "$COMMITS"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bumping $CURRENT → $NEW_VERSION ($BUMP)"
+
+      - name: Update pyproject.toml
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          sed -i "s/^version = \".*\"/version = \"${NEW_VERSION}\"/" pyproject.toml
+          grep '^version' pyproject.toml
+
+      - name: Commit version bump
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.new_version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml
+          git diff --cached --quiet || git commit -m "chore: bump version to ${NEW_VERSION} [skip ci]"
+          git push origin HEAD:${{ github.head_ref }}

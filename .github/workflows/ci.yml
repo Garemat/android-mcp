@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Verify import
+        run: python -c "import android_mcp.server; import android_mcp.adb; import android_mcp.ui; print('imports OK')"
+
+      - name: Build distribution
+        run: |
+          pip install build
+          python -m build
