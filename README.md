@@ -18,7 +18,13 @@ Exposes 14 tools over stdio so an AI agent can interact with a connected Android
 pip install adb-mcp
 ```
 
-Or from source:
+Or directly from GitHub (useful before the first PyPI release lands):
+
+```bash
+pip install git+https://github.com/Garemat/android-mcp.git
+```
+
+Or from a local clone:
 
 ```bash
 git clone https://github.com/Garemat/android-mcp
