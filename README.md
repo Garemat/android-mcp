@@ -15,7 +15,7 @@ Exposes 14 tools over stdio so an AI agent can interact with a connected Android
 ## Installation
 
 ```bash
-pip install android-mcp
+pip install adb-mcp
 ```
 
 Or from source:

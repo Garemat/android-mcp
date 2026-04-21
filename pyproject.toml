@@ -1,5 +1,5 @@
 [project]
-name = "android-mcp"
+name = "adb-mcp"
 version = "0.1.0"
 description = "MCP server for controlling Android devices and emulators via ADB"
 requires-python = ">=3.11"
